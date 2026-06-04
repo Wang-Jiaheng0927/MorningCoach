@@ -18,36 +18,49 @@ DATA_FILE = BASE_DIR / "sample_data.csv"
 PROFILE_FILE = BASE_DIR / "user_profile.json"
 
 
-DEFAULT_PROFILE = {
-    "name": "there",
-    "communication_style": "gentle",
-}
+DEFAULT_COMMUNICATION_STYLE = "gentle"
+GOOD_SLEEP_SCORE = 75
+LOW_SLEEP_SCORE = 60
+LOW_STRESS_LEVEL = 40
+HIGH_STRESS_LEVEL = 70
+
+
+def get_yesterday_date() -> str:
+    """Return the date string used for yesterday's health lookup."""
+    return (date.today() - timedelta(days=1)).isoformat()
 
 
 def ask_user_id(profiles: dict[str, dict[str, str]]) -> str:
     """Ask which user is using the morning coach."""
+    if not profiles:
+        raise ValueError("No user profiles are available.")
+
     user_ids = ", ".join(profiles)
-    default_user_id = next(iter(profiles), "default")
 
-    try:
-        user_id = input(f"请输入用户 ID（可选：{user_ids}）：").strip().lower()
-    except EOFError:
-        user_id = ""
+    while True:
+        try:
+            user_id = input(f"请输入用户 ID（可选：{user_ids}）：").strip().lower()
+        except EOFError as error:
+            raise ValueError("没有收到用户 ID，无法读取对应的健康记录。") from error
 
-    if not user_id:
-        return default_user_id
+        if not user_id:
+            print("我需要先确认是哪位用户，才能读取对应的健康记录。")
+            continue
 
-    return user_id
+        if user_id in profiles:
+            return user_id
+
+        print(f"暂时没有找到用户「{user_id}」。请从这些用户中选择：{user_ids}")
 
 
 def get_yesterday_health_data(
     user_id: str | None = None, data_file: Path = DATA_FILE
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     """Perception / Tool: read yesterday's health data from a local CSV file."""
     if not data_file.exists():
         raise FileNotFoundError(f"Health data file not found: {data_file}")
 
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = get_yesterday_date()
 
     with data_file.open(newline="", encoding="utf-8") as file:
         rows = list(csv.DictReader(file))
@@ -64,12 +77,13 @@ def get_yesterday_health_data(
             f"Available users: {', '.join(available_users)}"
         )
 
-    selected_row = next(
-        (row for row in user_rows if row.get("date") == yesterday), user_rows[-1]
-    )
+    selected_row = next((row for row in user_rows if row.get("date") == yesterday), None)
+
+    if selected_row is None:
+        return None
 
     return {
-        "user_id": selected_row.get("user_id", user_id or "default"),
+        "user_id": selected_row.get("user_id", user_id),
         "date": selected_row["date"],
         "sleep_score": int(selected_row["sleep_score"]),
         "stress_level": int(selected_row["stress_level"]),
@@ -79,13 +93,16 @@ def get_yesterday_health_data(
 def load_user_profiles(profile_file: Path = PROFILE_FILE) -> dict[str, dict[str, str]]:
     """Memory: load all known user profiles."""
     if not profile_file.exists():
-        return {"default": DEFAULT_PROFILE.copy()}
+        raise FileNotFoundError(f"User profile file not found: {profile_file}")
 
     with profile_file.open(encoding="utf-8") as file:
         profiles = json.load(file)
 
     if not isinstance(profiles, dict):
         raise ValueError("User profile file must contain a JSON object.")
+
+    if not profiles:
+        raise ValueError("User profile file does not contain any users.")
 
     return profiles
 
@@ -104,9 +121,9 @@ def load_user_profile(
         )
 
     return {
-        "name": str(profile.get("name", DEFAULT_PROFILE["name"])),
+        "name": str(profile.get("name", user_id)),
         "communication_style": str(
-            profile.get("communication_style", DEFAULT_PROFILE["communication_style"])
+            profile.get("communication_style", DEFAULT_COMMUNICATION_STYLE)
         ),
     }
 
@@ -116,16 +133,16 @@ def build_health_context(health_data: dict[str, Any]) -> dict[str, Any]:
     sleep_score = health_data["sleep_score"]
     stress_level = health_data["stress_level"]
 
-    if sleep_score >= 75:
+    if sleep_score >= GOOD_SLEEP_SCORE:
         sleep_quality = "good"
-    elif sleep_score < 60:
+    elif sleep_score < LOW_SLEEP_SCORE:
         sleep_quality = "low"
     else:
         sleep_quality = "average"
 
-    if stress_level <= 40:
+    if stress_level <= LOW_STRESS_LEVEL:
         stress_load = "low"
-    elif stress_level >= 70:
+    elif stress_level >= HIGH_STRESS_LEVEL:
         stress_load = "high"
     else:
         stress_load = "moderate"
@@ -199,10 +216,12 @@ def compose_message(
 
     This rule-based renderer can be replaced later with an LLM call while
     keeping the same inputs: raw data, profile memory, health context, strategy.
+    The raw health_data argument is intentionally kept for future prompt
+    construction even though the current template uses health_context.
     """
-    name = user_profile.get("name", DEFAULT_PROFILE["name"])
+    name = user_profile["name"]
     communication_style = user_profile.get(
-        "communication_style", DEFAULT_PROFILE["communication_style"]
+        "communication_style", DEFAULT_COMMUNICATION_STYLE
     ).lower()
     sleep_score = health_context["metrics"]["sleep_score"]
     stress_level = health_context["metrics"]["stress_level"]
@@ -233,11 +252,36 @@ def generate_greeting(
     health_data: dict[str, Any], user_profile: dict[str, str] | None = None
 ) -> str:
     """Action planning: generate a morning message based on data and memory."""
-    profile = user_profile or DEFAULT_PROFILE.copy()
+    if user_profile is None:
+        user_profile = {
+            "name": str(health_data.get("user_id", "用户")),
+            "communication_style": DEFAULT_COMMUNICATION_STYLE,
+        }
+
     health_context = build_health_context(health_data)
     base_state = assess_base_state(health_context)
     strategy = choose_conversation_strategy(base_state, health_context)
-    return compose_message(health_data, profile, health_context, strategy)
+    return compose_message(health_data, user_profile, health_context, strategy)
+
+
+def generate_missing_data_message(user_profile: dict[str, str], target_date: str) -> str:
+    """Action: explain that yesterday's health data is not available."""
+    name = user_profile["name"]
+    communication_style = user_profile.get(
+        "communication_style", DEFAULT_COMMUNICATION_STYLE
+    ).lower()
+
+    if communication_style == "direct":
+        return (
+            f"早上好，{name}。我没有找到 {target_date} 的健康数据，可能是昨天没有使用产品，"
+            "也可能是数据采集中断。今天先不基于旧数据给建议，建议你先记录一次当前状态。"
+        )
+
+    return (
+        f"早上好，{name}。我暂时没有找到 {target_date} 的健康数据，可能是昨天没有使用产品，"
+        "也可能是数据采集没有完成。为了不误导你，今天先不根据旧数据给建议；"
+        "你可以先花半分钟记录一下现在的状态。"
+    )
 
 
 def main() -> None:
@@ -246,6 +290,11 @@ def main() -> None:
     user_id = ask_user_id(profiles)
     user_profile = load_user_profile(user_id)
     health_data = get_yesterday_health_data(user_id)
+
+    if health_data is None:
+        print(generate_missing_data_message(user_profile, get_yesterday_date()))
+        return
+
     greeting = generate_greeting(health_data, user_profile)
     print(greeting)
 

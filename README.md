@@ -61,6 +61,8 @@ python morning_coach.py
 请输入用户 ID（可选：vincent, alex）：vincent
 ```
 
+如果输入的用户不存在，脚本会温和提示并要求重新输入，避免读取错误用户的健康数据。
+
 温和风格示例输出：
 
 ```text
@@ -95,8 +97,13 @@ python morning_coach.py
 - `gentle`: 更温和
 - `direct`: 更直接
 
+## 数据缺失处理
+
+脚本只会读取对应用户昨日的数据。如果没有找到昨日记录，它不会自动使用更早的数据，因为过期健康数据可能误导晨间建议。此时脚本会提示：昨天可能没有使用产品，或数据采集过程中断，并建议用户先记录当前状态。
+
 ## 可扩展性
 
 - 接入真实 API: 替换 `get_yesterday_health_data()` 内部的数据读取逻辑即可
 - 增加健康指标: 在 CSV 中增加字段，并在 `build_health_context()` 中补充对应分析信号
+- 调整判断规则: 修改脚本顶部的阈值常量，例如 `GOOD_SLEEP_SCORE`、`HIGH_STRESS_LEVEL`
 - 接入 LLM: 替换 `compose_message()`，使用同样的 `health_data`、`user_profile`、`health_context` 和 `strategy` 作为提示词输入
