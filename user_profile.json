@@ -1,4 +1,10 @@
 {
-  "name": "Vincent",
-  "communication_style": "gentle"
+  "vincent": {
+    "name": "Vincent",
+    "communication_style": "gentle"
+  },
+  "alex": {
+    "name": "Alex",
+    "communication_style": "direct"
+  }
 }

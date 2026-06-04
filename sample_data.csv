@@ -1,4 +1,7 @@
-date,sleep_score,stress_level
-2026-06-01,48,80
-2026-06-02,65,55
-2026-06-03,82,28
+user_id,date,sleep_score,stress_level
+vincent,2026-06-01,48,80
+vincent,2026-06-02,65,55
+vincent,2026-06-03,82,28
+alex,2026-06-01,76,35
+alex,2026-06-02,62,58
+alex,2026-06-03,55,76
