@@ -1,4 +1,4 @@
-# Morning Health Coach Agent
+# MorningCoach
 
 一个轻量级的规则驱动晨间健康助手 Agent。它会读取昨日健康数据，根据睡眠评分和压力指数判断用户的基础状态，然后生成一条有同理心的晨间问候。
 
